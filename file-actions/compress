@@ -1,0 +1,53 @@
+#!/bin/bash
+
+FILE=$1
+SCALE=$2
+
+if [[ $SCALE == "720" ]]; then
+    SCALE_OPTION="scale=1280:720"
+    OUTPUT_FILE="${FILE%.*}-compressed_720.mp4"
+elif [[ $SCALE == "1080" ]]; then
+    SCALE_OPTION="scale=1920:1080"
+    OUTPUT_FILE="${FILE%.*}-compressed_1080.mp4"
+else
+    SCALE_OPTION="scale=iw:ih"  # Retain original resolution
+    OUTPUT_FILE="${FILE%.*}-compressed_original.mp4"
+fi
+
+# Get the duration of the input file in seconds using ffprobe
+DURATION=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$FILE")
+
+# Check if the duration was retrieved correctly
+if [ -z "$DURATION" ]; then
+    echo "Could not retrieve duration of the input file."
+    exit 1
+fi
+
+# Function to get the terminal width
+get_terminal_width() {
+    if [ -t 1 ]; then
+        tput cols
+    else
+        echo 80
+    fi
+}
+
+# Run FFmpeg with progress tracking
+ffmpeg -i "$FILE" -vf "$SCALE_OPTION" -vcodec h264 -preset ultrafast -acodec aac -strict -2 -progress - -y "$OUTPUT_FILE" 2>&1 | awk -v DURATION="$DURATION" -F'=' '
+BEGIN {
+    bar_width = '"$(get_terminal_width)"' - 30; # Adjust for text width
+    if (bar_width < 10) bar_width = 10; # Minimum bar width
+}
+/out_time_ms/ {
+    time_in_sec = $2 / 1000000;
+    progress = (time_in_sec / DURATION) * 100;
+    bar_width = 50;
+    num_hashes = int(bar_width * progress / 100);
+    bar = "[" substr("oooooooooooooooooooooooooooooooooooooooooooooooooo", 1, num_hashes);
+    bar = bar substr("..................................................", num_hashes + 1, bar_width - num_hashes) "]";
+    printf "\rProgress: %s %.2f%%", bar, progress;
+    fflush(stdout)
+}
+END { print "" }'
+
+echo "Output file: $OUTPUT_FILE"
